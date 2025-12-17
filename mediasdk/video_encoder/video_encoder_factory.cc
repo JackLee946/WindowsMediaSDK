@@ -3,7 +3,7 @@
 // x264 和 openh264 头文件会有冲突
 #include "x264/video_encoder_x264.h"
 #include "x265/video_encoder_x265.h"
-// #include "openh264/video_encoder_openh264.h"
+#include "openh264/video_encoder_openh264.h"
 #include "ffmpeg/video_encoder_ffmpeg.h"
 #include "qsv/video_encoder_qsv.h"
 
@@ -23,8 +23,8 @@ std::shared_ptr<VideoEncoder> VideoEnocderFcatory::CreateEncoder(EncodeType enco
         video_encoder.reset(new VideoEncoderX265());
         break;
     case kEncodeTypeOpenH264:
-        video_encoder.reset(new VideoEncoderX264());
-        // video_encoder.reset(new VideoEncoderOpenH264());
+        // video_encoder.reset(new VideoEncoderX264());
+        video_encoder.reset(new VideoEncoderOpenH264());
         break;
     case kEncodeTypeFFmpeg:
         video_encoder.reset(new VideoEncoderFFmpeg());

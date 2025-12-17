@@ -162,9 +162,13 @@ bool VideoDeviceMF::Init() {
         return true;
     }
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    // HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
     if (FAILED(hr)) {
-        return false;
+        hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
+        if (FAILED(hr)) {
+            return hr;
+        }
     }
     hr = MFStartup(MF_VERSION);
     if (FAILED(hr)) {

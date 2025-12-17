@@ -3,8 +3,10 @@
 #include <vector>
 #include "video_encoder.h"
 
-#include "openh264/wels/codec_api.h"
 
+class ISVCEncoder;
+class TagEncParamExt;
+class Source_Picture_s;
 class VideoEncoderOpenH264 : public VideoEncoder {
 public:
     VideoEncoderOpenH264();

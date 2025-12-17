@@ -1,5 +1,5 @@
 ﻿#include "video_encoder_openh264.h"
-
+#include "openh264/wels/codec_api.h"
 #include "yuv/libyuv.h"
 
 #include <iostream>
