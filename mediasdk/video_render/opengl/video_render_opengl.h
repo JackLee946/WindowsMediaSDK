@@ -29,8 +29,6 @@ private:
     void CalcRenderPos();
 
 private:
-    uint32_t window_width_{};
-    uint32_t window_height_{};
     HDC hdc_{};
     HGLRC hrc_{};
 

@@ -45,6 +45,7 @@ private:
     void StartPush();
     void StopPush();
     void SetStatus(const std::string& status);
+    void SetStatusW(const std::wstring& status);
     void CreateVideoDeviceChooseWindow();
 
 private:

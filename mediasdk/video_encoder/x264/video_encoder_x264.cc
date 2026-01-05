@@ -64,7 +64,9 @@ bool VideoEncoderX264::Uninit() {
 
 bool VideoEncoderX264::Init() {
     x264_param_t x264_param;
-    uint32_t bitrate = 6 * 1024; // 6M bps
+    // Reduced bitrate from 6M to 2M to reduce network congestion and latency
+    // 2Mbps is sufficient for 1280x720@25fps streaming
+    uint32_t bitrate = 2 * 1024; // 2M bps
     if (enable_hd_mode_) {
         x264_param_default_preset(&x264_param, "veryfast", "zerolatency");
         // bitrate = 3600 + output_width_ * output_height_ / 400;

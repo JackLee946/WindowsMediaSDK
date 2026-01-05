@@ -182,12 +182,12 @@ mfxStatus VideoEncoderQSV::InitEnocdeParams() {
     encode_param_.mfx.NumSlice = 1;
     if (enable_hd_mode_) {
         encode_param_.mfx.TargetUsage = MFX_TARGETUSAGE_BEST_QUALITY;
-        encode_param_.mfx.MaxKbps = 10 * 1024;
+        encode_param_.mfx.MaxKbps = 3 * 1024; // Reduced from 10M to 3M
     } else {
-        encode_param_.mfx.TargetUsage = MFX_TARGETUSAGE_BEST_SPEED;
-        encode_param_.mfx.MaxKbps = 8 * 1024;
+        encode_param_.mfx.TargetUsage = MFX_TARGETUSAGE_BEST_SPEED; // Best speed for low latency
+        encode_param_.mfx.MaxKbps = 2 * 1024; // Reduced from 8M to 2M
     }
-    encode_param_.mfx.TargetKbps = 6 * 1024;
+    encode_param_.mfx.TargetKbps = 2 * 1024; // Reduced from 6M to 2M for lower latency
     encode_param_.mfx.FrameInfo.FrameRateExtN = frame_rate_;
     encode_param_.mfx.FrameInfo.FrameRateExtD = 1;
     encode_param_.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
@@ -197,7 +197,7 @@ mfxStatus VideoEncoderQSV::InitEnocdeParams() {
     encode_param_.mfx.FrameInfo.CropY = 0;
     encode_param_.mfx.FrameInfo.CropW = output_width_;
     encode_param_.mfx.FrameInfo.CropH = output_height_;
-    encode_param_.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
+    encode_param_.mfx.RateControlMethod = MFX_RATECONTROL_CBR; // CBR for more consistent bitrate and lower latency
     encode_param_.AsyncDepth = 1;
     encode_param_.mfx.GopPicSize = UINT16_MAX;
     static mfxExtBuffer* extendedBuffers[1];

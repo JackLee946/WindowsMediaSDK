@@ -82,11 +82,8 @@ void VideoDeviceWindow::InitWindow() {
     if (!device_window) {
         return;
     }
-    LONG startX = 10;
-    // XML already has title + inset; start from top of this layout.
-    LONG startY = 0;
-    LONG width = 150;
-    LONG height = 30;
+    // Clear previous items (if any) to avoid overlap when reopening.
+    device_window->RemoveAll();
 
     auto to_ui_text_from_utf8 = [](const std::string& s) -> DuiLib::CDuiString {
 #ifdef _UNICODE
@@ -106,6 +103,14 @@ void VideoDeviceWindow::InitWindow() {
     for (size_t i = 0; i < video_devices_.size(); ++i) {
         std::string option_name = "camera_" + std::to_string(i);
 
+        // Build a row layout so controls participate in layout (avoid float+fixed XY overlap).
+        auto row = new DuiLib::CHorizontalLayoutUI();
+        row->SetFixedHeight(34);
+        row->SetChildPadding(8);
+        row->SetChildVAlign(DT_VCENTER);
+        RECT inset = {10, 0, 10, 0};
+        row->SetInset(inset);
+
         DuiLib::COptionUI* option = new DuiLib::COptionUI;
         DuiLib::CLabelUI* label = new DuiLib::CLabelUI;
 
@@ -114,19 +119,12 @@ void VideoDeviceWindow::InitWindow() {
         option->SetName(option_name.c_str());
         option_vec_.push_back(option_name);
 
-        option->SetFloat(true);
-        label->SetFloat(true);
         option->SetFont(0);
         label->SetFont(0);
 
-        startY = startY + 40;
-        option->SetFixedXY({startX, startY});
         option->SetFixedWidth(20);
         option->SetFixedHeight(20);
-
-        label->SetFixedXY({startX + 22, startY});
-        label->SetFixedWidth(580);
-        label->SetFixedHeight(20);
+        label->SetFixedHeight(24);
 
         option->SetNormalImage(_T("..\\..\\resources\\common\\radio_un.png"));
         option->SetSelectedImage(_T("..\\..\\resources\\common\\radio_sel.png"));
@@ -138,8 +136,9 @@ void VideoDeviceWindow::InitWindow() {
             option->Selected(true);
         }
 
-        device_window->Add(option);
-        device_window->Add(label);
+        row->Add(option);
+        row->Add(label);
+        device_window->Add(row);
     }
 }
 

@@ -2,6 +2,11 @@
 
 #include <iostream>
 
+#include "local_log.h"
+namespace {
+static const char* kGlLogTag = "VideoRenderGL";
+}
+
 #define ATTRIB_VERTEX 3
 #define ATTRIB_TEXTURE 4
 
@@ -17,11 +22,17 @@ void VideoRenderOpenGL::RendFrameI420(uint8_t* y_data, uint32_t y_stride, uint8_
     }
     if (!init_) {
         Init();
-        init_ = true;
+    }
+    if (!init_) {
+        return;
     }
     if (frame_width_ != width || frame_height_ != height) {
         frame_width_ = width;
         frame_height_ = height;
+    }
+    // Ensure viewport matches window client size; default viewport may be 0x0 -> nothing displayed.
+    if (window_width_ > 0 && window_height_ > 0) {
+        glViewport(0, 0, (GLsizei)window_width_, (GLsizei)window_height_);
     }
     glClearColor(0.0, 0.0, 0.0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -53,11 +64,27 @@ void VideoRenderOpenGL::RendFrameNV21(uint8_t* y_data, uint32_t y_stride, uint8_
                                       uint32_t vu_stride, uint32_t width, uint32_t height) {}
 
 void VideoRenderOpenGL::Init() {
+    if (!render_window_ || !::IsWindow(render_window_)) {
+        LOGW(kGlLogTag) << "Init: render_window_ invalid";
+        init_ = false;
+        return;
+    }
     hdc_ = GetDC(render_window_);
+    if (!hdc_) {
+        LOGW(kGlLogTag) << "Init: GetDC failed";
+        init_ = false;
+        return;
+    }
     DestroyContext();
     InitContext();
+    if (!hrc_) {
+        LOGW(kGlLogTag) << "Init: GL context not created";
+        init_ = false;
+        return;
+    }
     InitShaders();
     InitTexture();
+    init_ = true;
 }
 
 void VideoRenderOpenGL::InitContext() {
@@ -76,22 +103,30 @@ void VideoRenderOpenGL::InitContext() {
     // pfd.cColorBits = (BYTE)GetDeviceCaps(hdc_, BITSPIXEL);
     int nPixelFormat = ChoosePixelFormat(hdc_, &pfd);
     if (nPixelFormat == 0) {
-        std::cout << "pixel format not found" << std::endl;
+        LOGW(kGlLogTag) << "InitContext: ChoosePixelFormat failed";
         return;
     }
     bool bResult = SetPixelFormat(hdc_, nPixelFormat, &pfd);
     if (!bResult) {
+        LOGW(kGlLogTag) << "InitContext: SetPixelFormat failed (maybe already set?)";
         return;
     }
     HGLRC tmp = wglCreateContext(hdc_);
+    if (!tmp) {
+        LOGW(kGlLogTag) << "InitContext: wglCreateContext failed";
+        return;
+    }
 
     wglMakeCurrent(hdc_, tmp);
 
     glewExperimental = GL_TRUE;
     GLenum GlewInitResult = glewInit();
     if (GlewInitResult != GLEW_OK) {
+        LOGW(kGlLogTag) << "InitContext: glewInit failed";
         return;
     }
+    // Keep this context for rendering on the current thread.
+    hrc_ = tmp;
 #if 0
     int attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB,
                      3,
@@ -120,8 +155,11 @@ void VideoRenderOpenGL::InitContext() {
 }
 
 void VideoRenderOpenGL::DestroyContext() {
-    wglDeleteContext(hrc_);
-    wglMakeCurrent(NULL, NULL);
+    if (hrc_) {
+        wglMakeCurrent(NULL, NULL);
+        wglDeleteContext(hrc_);
+        hrc_ = nullptr;
+    }
 }
 
 void VideoRenderOpenGL::InitShaders() {

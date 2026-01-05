@@ -377,7 +377,8 @@ struct MainWindow::AacEncoderState {
 MainWindow::MainWindow() {
     video_capture_engine_.reset(new VideoCaptureEngine());
     audio_engine_.reset(new AudioEngine());
-    video_encoder_ = VideoEnocderFcatory::Instance().CreateEncoder(kEncodeTypeX264);
+    // Use hardware encoder (QSV) for lower latency and better performance
+    video_encoder_ = VideoEnocderFcatory::Instance().CreateEncoder(kEncodeTypeQSV);
     if (video_encoder_) {
         video_encoder_->SetOutputSize((uint32_t)width_, (uint32_t)height_);
     }
@@ -474,7 +475,8 @@ LRESULT MainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/
     if (edit) {
         edit->SetText(_T("rtmp://127.0.0.1/live/stream"));
     }
-    SetStatus("就绪");
+    // Avoid source-file encoding issues: use Unicode escapes (UTF-16) directly.
+    SetStatusW(L"\u72B6\u6001\uFF1A\u5C31\u7EEA"); // 状态：就绪
     
     // Update button states
     auto btnStart = Find<DuiLib::CButtonUI>(paint_manager_, "btnStart");
@@ -521,14 +523,18 @@ DuiLib::CControlUI* MainWindow::CreateControl(LPCTSTR pstrClass) {
 }
 
 void MainWindow::SetStatus(const std::string& status) {
+    // Accept UTF-8 and forward to UTF-16 UI.
+    SetStatusW(utils::Utf8ToUnicode(status));
+}
+
+void MainWindow::SetStatusW(const std::wstring& status) {
     auto lbl = Find<DuiLib::CLabelUI>(paint_manager_, "lblStatus");
     if (lbl) {
-        // Treat status as UTF-8 to avoid codepage-dependent mojibake.
 #ifdef _UNICODE
-        std::wstring wstatus = utils::Utf8ToUnicode(status);
-        lbl->SetText(wstatus.empty() ? _T("") : (LPCTSTR)wstatus.c_str());
+        lbl->SetText(status.empty() ? _T("") : (LPCTSTR)status.c_str());
 #else
-        lbl->SetText(status.c_str());
+        // Non-UNICODE build: best-effort convert UTF-16 to ANSI.
+        lbl->SetText(utils::UnicodeToAnsi(status).c_str());
 #endif
     }
 }
@@ -559,7 +565,7 @@ void MainWindow::StartPush() {
     LOGI(kRtmpPushLogTag) << "[StartPush] URL: " << url_;
     if (url_.empty()) {
         LOGI(kRtmpPushLogTag) << "[StartPush] URL is empty";
-        SetStatus(u8"RTMP地址为空");
+        SetStatusW(L"RTMP\u5730\u5740\u4E3A\u7A7A"); // RTMP地址为空
         pushing_ = false;
         return;
     }
@@ -580,7 +586,7 @@ void MainWindow::StartPush() {
     }
 
     LOGI(kRtmpPushLogTag) << "[StartPush] Set status: starting";
-    SetStatus(u8"正在启动...");
+    SetStatusW(L"\u6B63\u5728\u542F\u52A8..."); // 正在启动...
     
     // Update button states
     {
@@ -599,7 +605,7 @@ void MainWindow::StartPush() {
     Easy_Handle h = EasyRTMP_Create();
     if (!h) {
         LOGI(kRtmpPushLogTag) << "[StartPush] EasyRTMP_Create failed";
-        SetStatus(u8"EasyRTMP_Create 失败");
+        SetStatusW(L"EasyRTMP_Create \u5931\u8D25"); // EasyRTMP_Create 失败
         pushing_ = false;
         // Re-enable start button
         {
@@ -620,7 +626,7 @@ void MainWindow::StartPush() {
     LOGI(kRtmpPushLogTag) << "[StartPush] Connect RTMP";
     if (!EasyRTMP_Connect(h, url_.c_str())) {
         LOGI(kRtmpPushLogTag) << "[StartPush] EasyRTMP_Connect failed";
-        SetStatus(u8"RTMP连接失败");
+        SetStatusW(L"RTMP\u8FDE\u63A5\u5931\u8D25"); // RTMP连接失败
         {
             std::lock_guard<std::mutex> lock(rtmp_mu_);
             rtmp_handle_ = nullptr;
@@ -653,41 +659,54 @@ void MainWindow::StartPush() {
                                   [&]() { return !pushing_.load() || rtmp_metadata_inited_.load(); });
                 continue;
             }
-            QueuedFrame q;
-            {
-                std::unique_lock<std::mutex> lock(rtmp_mu_);
-                rtmp_cv_.wait(lock, [&]() { return !pushing_.load() || !rtmp_queue_.empty(); });
-                if (!pushing_.load() && rtmp_queue_.empty()) {
-                    break;
-                }
-                q = std::move(rtmp_queue_.front());
-                rtmp_queue_.pop_front();
-            }
+            
+            // Get RTMP handle (outside of queue lock to reduce lock contention)
             Easy_Handle h = nullptr;
             {
                 std::lock_guard<std::mutex> lock(rtmp_mu_);
                 h = rtmp_handle_;
             }
             if (!h) {
-                LOGI(kRtmpPushLogTag) << "[RTMP Thread] Handle is null, skipping";
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
-            q.frame.pBuffer = q.buffer.data();
-            q.frame.u32AVFrameLen = (Easy_U32)q.buffer.size();
-            const uint64_t sn = ++g_rtmp_send_count;
-            if (sn <= 3 || (sn % 200) == 0) {
-                LOGI(kRtmpPushLogTag) << "[RTMP Thread] Sending packet (throttled), type="
-                                      << (q.frame.u32AVFrameFlag == EASY_SDK_VIDEO_FRAME_FLAG ? "VIDEO" : "AUDIO")
-                                      << ", len=" << q.buffer.size() << ", send_count=" << sn;
-            }
-            Easy_U32 sent = EasyRTMP_SendPacket(h, &q.frame);
-            if (sent == 0) {
-                LOGE(kRtmpPushLogTag) << "[RTMP Thread] SendPacket failed; stopping push to avoid reconnect storm";
-                // Notify UI thread to StopPush() (do NOT call StopPush here to avoid deadlock).
-                if (m_hWnd) {
-                    ::PostMessage(m_hWnd, WM_APP_RTMP_SEND_FAILED, 0, 0);
+            
+            // Batch process: get multiple frames at once to reduce lock contention
+            std::vector<QueuedFrame> batch;
+            batch.reserve(10); // Process up to 10 frames per batch
+            {
+                std::unique_lock<std::mutex> lock(rtmp_mu_);
+                rtmp_cv_.wait(lock, [&]() { return !pushing_.load() || !rtmp_queue_.empty(); });
+                if (!pushing_.load() && rtmp_queue_.empty()) {
+                    break;
                 }
-                break;
+                // Move up to 10 frames to batch
+                size_t batch_size = std::min<size_t>(10, rtmp_queue_.size());
+                for (size_t i = 0; i < batch_size; ++i) {
+                    batch.push_back(std::move(rtmp_queue_.front()));
+                    rtmp_queue_.pop_front();
+                }
+            }
+            
+            // Send batch outside of lock
+            for (auto& q : batch) {
+                q.frame.pBuffer = q.buffer.data();
+                q.frame.u32AVFrameLen = (Easy_U32)q.buffer.size();
+                const uint64_t sn = ++g_rtmp_send_count;
+                if (sn <= 3 || (sn % 500) == 0) {
+                    LOGI(kRtmpPushLogTag) << "[RTMP Thread] Sending packet (throttled), type="
+                                          << (q.frame.u32AVFrameFlag == EASY_SDK_VIDEO_FRAME_FLAG ? "VIDEO" : "AUDIO")
+                                          << ", len=" << q.buffer.size() << ", send_count=" << sn;
+                }
+                Easy_U32 sent = EasyRTMP_SendPacket(h, &q.frame);
+                if (sent == 0) {
+                    LOGE(kRtmpPushLogTag) << "[RTMP Thread] SendPacket failed; stopping push to avoid reconnect storm";
+                    // Notify UI thread to StopPush() (do NOT call StopPush here to avoid deadlock).
+                    if (m_hWnd) {
+                        ::PostMessage(m_hWnd, WM_APP_RTMP_SEND_FAILED, 0, 0);
+                    }
+                    return; // Exit thread
+                }
             }
         }
     });
@@ -725,23 +744,27 @@ void MainWindow::StartPush() {
         }
     });
 
-    // init render window handle (temporarily disabled to isolate crash)
-    // auto wnd = (CWndUI*)(paint_manager_.FindControl("renderWindow"));
-    // if (wnd) {
-    //     wnd->SetEnabled(false);
-    //     wnd->SetVisible(true);
-    //     wnd->SetPos({0, 0, 960, 540});
-    //     ::ShowWindow(wnd->GetHwnd(), true);
-    //     try {
-    //         video_render_ = VideoRenderFactory::CreateInstance()->CreateVideoRender(kRenderTypeOpenGL);
-    //         if (video_render_) {
-    //             video_render_->SetWindow(wnd->GetHwnd());
-    //         }
-    //     } catch (...) {
-    //         // Render creation failed, continue without preview
-    //         video_render_.reset();
-    //     }
-    // }
+    // init local preview render (OpenGL). Safe: if creation fails, continue without preview.
+    auto wnd = (CWndUI*)(paint_manager_.FindControl("renderWindow"));
+    if (wnd) {
+        wnd->SetEnabled(false);
+        wnd->SetVisible(true);
+        ::ShowWindow(wnd->GetHwnd(), TRUE);
+        try {
+            video_render_ = VideoRenderFactory::CreateInstance()->CreateVideoRender(kRenderTypeOpenGL);
+            if (video_render_) {
+                video_render_->SetWindow(wnd->GetHwnd());
+                LOGI(kRtmpPushLogTag) << "[StartPush] Local preview enabled (OpenGL)";
+            } else {
+                LOGW(kRtmpPushLogTag) << "[StartPush] Local preview disabled: CreateVideoRender returned null";
+            }
+        } catch (...) {
+            video_render_.reset();
+            LOGW(kRtmpPushLogTag) << "[StartPush] Local preview disabled: CreateVideoRender threw";
+        }
+    } else {
+        LOGW(kRtmpPushLogTag) << "[StartPush] Local preview disabled: renderWindow not found";
+    }
 
     // init encoder callback
     LOGI(kRtmpPushLogTag) << "[StartPush] Setup video encoder callback";
@@ -829,7 +852,10 @@ void MainWindow::StartPush() {
         {
             std::lock_guard<std::mutex> lock(rtmp_mu_);
             rtmp_queue_.push_back(std::move(q));
-            LOGI(kRtmpPushLogTag) << "[Video Encoder Callback] Queued video frame, len=" << len << ", queue size=" << rtmp_queue_.size();
+            static uint64_t queue_log_count = 0;
+            if (++queue_log_count <= 3 || (queue_log_count % 500) == 0) {
+                LOGI(kRtmpPushLogTag) << "[Video Encoder Callback] Queued video frame (throttled), len=" << len << ", queue size=" << rtmp_queue_.size();
+            }
         }
         rtmp_cv_.notify_one();
     });
@@ -865,7 +891,7 @@ void MainWindow::StartPush() {
         {
             std::lock_guard<std::mutex> lock(rtmp_mu_);
             rtmp_queue_.push_back(std::move(q));
-            if (n <= 3 || (n % 200) == 0) {
+            if (n <= 3 || (n % 500) == 0) {
                 LOGI(kRtmpPushLogTag) << "[Audio Encoder Callback] Queued audio frame (throttled), len=" << len
                                       << ", queue size=" << rtmp_queue_.size();
             }
@@ -880,7 +906,7 @@ void MainWindow::StartPush() {
     }
     if (video_devices_.empty()) {
         LOGI(kRtmpPushLogTag) << "[StartPush] No video devices found";
-        SetStatus("未找到摄像头设备");
+        SetStatusW(L"\u672A\u627E\u5230\u6444\u50CF\u5934\u8BBE\u5907"); // 未找到摄像头设备
         StopPush();
         // Re-enable start button
         {
@@ -1039,7 +1065,7 @@ void MainWindow::StartPush() {
     }
 
     LOGI(kRtmpPushLogTag) << "[StartPush] Set status: pushing";
-    SetStatus(u8"正在推流...");
+    SetStatusW(L"\u6B63\u5728\u63A8\u6D41..."); // 正在推流...
     
     // Update button states
     LOGI(kRtmpPushLogTag) << "[StartPush] Update button states";
@@ -1068,14 +1094,14 @@ void MainWindow::StartPush() {
 
 void MainWindow::CreateVideoDeviceChooseWindow() {
     if (pushing_.load()) {
-        SetStatus(u8"请先停止推流再切换摄像头");
+        SetStatusW(L"\u8BF7\u5148\u505C\u6B62\u63A8\u6D41\u518D\u5207\u6362\u6444\u50CF\u5934"); // 请先停止推流再切换摄像头
         return;
     }
     if (video_devices_.empty()) {
         video_devices_ = video_capture_engine_->EnumVideoDevices();
     }
     if (video_devices_.empty()) {
-        SetStatus(u8"未找到摄像头设备");
+        SetStatusW(L"\u672A\u627E\u5230\u6444\u50CF\u5934\u8BBE\u5907"); // 未找到摄像头设备
         return;
     }
     if (video_device_window_ && IsWindow(video_device_hwnd_)) {
@@ -1083,7 +1109,8 @@ void MainWindow::CreateVideoDeviceChooseWindow() {
     }
     int count = (int)video_devices_.size();
     int width = 600;
-    int height = count * 50 + 70;
+    // Leave enough room for title + list + bottom OK button (avoid overlap on DPI scaling).
+    int height = (std::max)(220, count * 40 + 140);
     video_device_window_.reset(new VideoDeviceWindow());
     video_device_window_->SetVideoDeviceCallback(
         [&](const std::string& device_id) { current_device_id_ = device_id; });
@@ -1101,7 +1128,7 @@ void MainWindow::StopPush() {
         return;
     }
 
-    SetStatus(u8"正在停止...");
+    SetStatusW(L"\u6B63\u5728\u505C\u6B62..."); // 正在停止...
 
     // stop capture/audio
     video_capture_engine_->StopCapture();
@@ -1140,8 +1167,7 @@ void MainWindow::StopPush() {
     sps_.clear();
     pps_.clear();
 
-    const char* status_stopped = "\xe5\xb7\xb2\xe5\x81\x9c\xe6\xad\xa2"; // UTF-8 encoded "已停止"
-    SetStatus(status_stopped);
+    SetStatusW(L"\u5DF2\u505C\u6B62"); // 已停止
     
     // Update button states
     {

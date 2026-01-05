@@ -4,17 +4,19 @@
  <Font id="1" name="宋体" size="12"/>
  <Font id="2" name="宋体" size="9" bold="false" italic="false" />
  <Default shared="true" name="Button" value=" height=&quot;30&quot; width=&quot;100&quot; normalimage=&quot;file=&apos;../../resources/common/button_normal.png&apos;&quot; hotimage=&quot;file=&apos;../../resources/common/button_hover.png&apos;&quot; pushedimage=&quot;file=&apos;../../resources/common/button_pushed.png&apos;&quot; font=&quot;0&quot;" />
-    <VerticalLayout bkcolor="#FFDDDDDD">
-        <!-- Title -->
-        <Label name="lblTitle" text="视频设备选择" float="true" pos="10,6,0,0" width="400" height="24" font="0"/>
+  <VerticalLayout bkcolor="#FFDDDDDD" inset="10,10,10,10">
+    <!-- Title -->
+    <Label name="lblTitle" text="视频设备选择" height="28" font="0"/>
 
-        <!-- Device list area (controls will be added dynamically in code) -->
-        <VerticalLayout name="deviceWindow" inset="10,36,10,50">
-        </VerticalLayout>
-
-        <!-- OK button -->
-        <Button name="btnOk" text="确定" float="true" pos="-110,-40,0,0" width="100" height="30" font="0" />
+    <!-- Device list area (controls will be added dynamically in code) -->
+    <VerticalLayout name="deviceWindow" inset="0,10,0,10">
     </VerticalLayout>
+
+    <!-- Bottom bar -->
+    <HorizontalLayout height="34" childalign="right">
+      <Button name="btnOk" text="确定" width="100" height="30" font="0" />
+    </HorizontalLayout>
+  </VerticalLayout>
 </Window>
 
 
