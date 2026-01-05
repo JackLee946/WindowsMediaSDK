@@ -51,9 +51,12 @@ void LogWriter::WriteLog(LocalLogLevel log_level, const std::string& log_tag,
     fout_ << GetCurrentTimeStr() << "[" << log_tag << "][" << log_map_[log_level] << "]["
           << PlatformThreadId() << "](" << log_filename << ":" << log_line_num << "): ";
     fout_ << log_content;
-    if (log_content[log_content.length() - 1] != '\n') {
+    // Guard empty content to avoid out-of-bounds access.
+    if (log_content.empty() || log_content[log_content.length() - 1] != '\n') {
         fout_ << "\n";
     }
+    // Flush every log line so logs are not truncated if the process crashes.
+    fout_.flush();
 }
 
 void LogWriter::SaveFile() {

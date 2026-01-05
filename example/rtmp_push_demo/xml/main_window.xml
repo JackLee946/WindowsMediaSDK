@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Window size="1000,640" mininfo="1000,640" maxinfo="1000,640" caption="0,0,0,32" sizebox="4,4,4,4">
+  <Font id="0" name="宋体" size="16" bold="false" underline="false" italic="false" />
+  <Font id="1" name="宋体" size="12"/>
+  <Default shared="true" name="Button" value=" height=&quot;30&quot; width=&quot;110&quot; normalimage=&quot;file=&apos;../../resources/common/button_normal.png&apos;&quot; hotimage=&quot;file=&apos;../../resources/common/button_hover.png&apos;&quot; pushedimage=&quot;file=&apos;../../resources/common/button_pushed.png&apos;&quot; font=&quot;0&quot;" />
+
+  <VerticalLayout bkcolor="#FFDDDDDD">
+    <!-- Top area expands to fill remaining height -->
+    <VerticalLayout>
+      <CWndUI name="renderWindow"/>
+    </VerticalLayout>
+
+    <!-- Bottom bar: fixed height; avoid absolute pos that breaks when client height != Window size -->
+    <VerticalLayout height="90" bkcolor="#FFDDDDDD">
+        <Label name="lblStatus" text="状态：就绪" float="true" pos="20,10,0,0" width="500" height="24" font="0"/>
+
+        <Label text="RTMP:" float="true" pos="20,40,0,0" width="60" height="24" font="0"/>
+        <Edit name="editUrl" float="true" pos="80,38,0,0" width="620" height="28" font="1" readonly="false" enabled="true" />
+
+        <Button name="btnChooseCamera" text="摄像头" float="true" pos="720,5,0,0" width="110" height="30" enabled="true" />
+        <Button name="btnQuit" text="退出" float="true" pos="840,5,0,0" width="110" height="30" enabled="true" />
+
+        <Button name="btnStart" text="开始推流" float="true" pos="720,36,0,0" width="110" height="30" enabled="true" />
+        <Button name="btnStop" text="停止推流" float="true" pos="840,36,0,0" width="110" height="30" enabled="true" />
+    </VerticalLayout>
+  </VerticalLayout>
+</Window>
+
+

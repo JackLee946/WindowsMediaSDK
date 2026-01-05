@@ -8,6 +8,16 @@ file(GLOB_RECURSE SCREEN_CAPTURE_SOURCE "screen_capture/*.cc" "screen_capture/*.
 file(GLOB_RECURSE VIDEO_DECODER_SOURCE "video_decoder/*.cc" "video_decoder/*.h")
 file(GLOB_RECURSE VIDEO_ENCODER_SOURCE "video_encoder/*.cc" "video_encoder/*.h")
 
+# rtmp (EasyRTMPAPI implementation based on bundled librtmp)
+set(LIBEASYRTMP_SOURCE
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/easyrtmp_api.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp/rtmp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp/amf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp/log.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp/parseurl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp/netstackdump.c
+)
+
 set(MEDIA_SOURCE ${AUDIO_CAPTURE_SOURCE}
                  ${COMMON_SOURCE}
                  ${LOCAL_LOG_SOURCE}
@@ -56,6 +66,20 @@ link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../third/lib/${Configuration}/yuv)
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../third/lib/${Configuration}/jpeg-turbo)
 
 add_library(mediasdk ${MEDIA_SOURCE})
+
+# Build Win32 static libeasyrtmp.lib from librtmp (avoid OpenSSL dependency).
+add_library(libeasyrtmp STATIC ${LIBEASYRTMP_SOURCE})
+target_include_directories(libeasyrtmp PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtmp/librtmp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third/include
+)
+target_compile_definitions(libeasyrtmp PRIVATE
+    NO_CRYPTO
+    NO_SSL
+    RTMPDUMP_VERSION=\"2.4\"
+)
+target_link_libraries(libeasyrtmp PUBLIC ws2_32 winmm)
 
 target_link_libraries(mediasdk PRIVATE glew32
                                        glew32s
